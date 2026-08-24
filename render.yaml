@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: disaster-x
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: DISASTER_X_SECRET
+        generateValue: true
+      - key: DISASTER_X_ADMIN
+        value: admin
+      - key: DISASTER_X_PASSWORD
+        sync: false
