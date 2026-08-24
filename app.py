@@ -195,40 +195,220 @@ def route(a, b, c, d):
         return None
 
 def overpass_services(lat, lon):
-    q = f"""
-    [out:json][timeout:25];
+    """
+    Find nearby hospitals, police stations and fire stations.
+
+    Uses multiple Overpass servers because one server can sometimes
+    be unavailable, rate-limited, or slow from cloud hosting such as Render.
+    Falls back to Nominatim if Overpass cannot return results.
+    """
+
+    overpass_servers = [
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter"
+    ]
+
+    query = f"""
+    [out:json][timeout:20];
     (
-      nwr["amenity"="hospital"](around:10000,{lat},{lon});
-      nwr["amenity"="police"](around:10000,{lat},{lon});
-      nwr["amenity"="fire_station"](around:10000,{lat},{lon});
+      nwr["amenity"="hospital"](around:15000,{lat},{lon});
+      nwr["amenity"="clinic"](around:15000,{lat},{lon});
+      nwr["amenity"="police"](around:15000,{lat},{lon});
+      nwr["amenity"="fire_station"](around:15000,{lat},{lon});
     );
     out center tags;
     """
-    try:
-        r = requests.post(OVERPASS_URL, data=q, timeout=30, headers={"User-Agent": "DisasterX/1.0"})
-        r.raise_for_status()
-        data = r.json()
-        out = []
-        for e in data.get("elements", []):
-            tags = e.get("tags", {})
-            p = e.get("center", e)
-            if "lat" not in p or "lon" not in p:
-                continue
-            typ = tags.get("amenity", "service").replace("_", " ").title()
-            name = tags.get("name", typ)
-            d = distance_km(lat, lon, float(p["lat"]), float(p["lon"]))
-            out.append({
-                "name": name,
-                "type": typ,
-                "lat": float(p["lat"]),
-                "lon": float(p["lon"]),
-                "distance": d
-            })
-        out.sort(key=lambda x: x["distance"])
-        return out[:40]
-    except Exception:
-        return []
 
+    headers = {
+        "User-Agent": "DisasterX/1.0 (emergency management application)"
+    }
+
+    # ---------------------------------------------------------
+    # TRY OVERPASS SERVERS
+    # ---------------------------------------------------------
+
+    for server in overpass_servers:
+
+        try:
+
+            response = requests.post(
+                server,
+                data=query,
+                headers=headers,
+                timeout=25
+            )
+
+            response.raise_for_status()
+
+            data = response.json()
+
+            services = []
+
+            for element in data.get("elements", []):
+
+                tags = element.get("tags", {})
+
+                # Nodes have lat/lon directly.
+                # Ways/relations have coordinates in "center".
+                if "lat" in element and "lon" in element:
+
+                    service_lat = element["lat"]
+                    service_lon = element["lon"]
+
+                elif "center" in element:
+
+                    service_lat = element["center"].get("lat")
+                    service_lon = element["center"].get("lon")
+
+                else:
+                    continue
+
+                if service_lat is None or service_lon is None:
+                    continue
+
+                amenity = tags.get("amenity", "service")
+
+                if amenity == "hospital":
+                    service_type = "Hospital"
+
+                elif amenity == "clinic":
+                    service_type = "Medical Clinic"
+
+                elif amenity == "police":
+                    service_type = "Police Station"
+
+                elif amenity == "fire_station":
+                    service_type = "Fire Station"
+
+                else:
+                    service_type = "Emergency Service"
+
+                name = (
+                    tags.get("name")
+                    or tags.get("official_name")
+                    or service_type
+                )
+
+                distance = distance_km(
+                    lat,
+                    lon,
+                    float(service_lat),
+                    float(service_lon)
+                )
+
+                services.append({
+                    "name": name,
+                    "type": service_type,
+                    "lat": float(service_lat),
+                    "lon": float(service_lon),
+                    "distance": float(distance)
+                })
+
+            services.sort(key=lambda x: x["distance"])
+
+            # If this server successfully returned services,
+            # use the results.
+            if services:
+
+                print(
+                    f"[Disaster X] Found {len(services)} nearby services "
+                    f"using {server}"
+                )
+
+                return services[:50]
+
+            # Empty result is still a valid Overpass response.
+            # Try the next server before falling back.
+            print(
+                f"[Disaster X] Overpass returned no services: {server}"
+            )
+
+        except Exception as e:
+
+            print(
+                f"[Disaster X] Overpass failed: {server} -> {e}"
+            )
+
+    # ---------------------------------------------------------
+    # NOMINATIM FALLBACK
+    # ---------------------------------------------------------
+
+    print("[Disaster X] Using Nominatim fallback.")
+
+    services = []
+
+    searches = [
+        ("hospital", "Hospital"),
+        ("clinic", "Medical Clinic"),
+        ("police station", "Police Station"),
+        ("fire station", "Fire Station")
+    ]
+
+    for search_term, service_type in searches:
+
+        try:
+
+            response = requests.get(
+                NOMINATIM_URL,
+                params={
+                    "q": f"{search_term} near {lat},{lon}",
+                    "format": "json",
+                    "limit": 10,
+                    "addressdetails": 1
+                },
+                headers=headers,
+                timeout=15
+            )
+
+            response.raise_for_status()
+
+            results = response.json()
+
+            for result in results:
+
+                try:
+
+                    service_lat = float(result["lat"])
+                    service_lon = float(result["lon"])
+
+                except Exception:
+                    continue
+
+                distance = distance_km(
+                    lat,
+                    lon,
+                    service_lat,
+                    service_lon
+                )
+
+                services.append({
+                    "name": result.get("display_name", service_type)
+                    .split(",")[0],
+
+                    "type": service_type,
+
+                    "lat": service_lat,
+
+                    "lon": service_lon,
+
+                    "distance": float(distance)
+                })
+
+        except Exception as e:
+
+            print(
+                f"[Disaster X] Nominatim fallback failed "
+                f"for {service_type}: {e}"
+            )
+
+    services.sort(key=lambda x: x["distance"])
+
+    print(
+        f"[Disaster X] Nominatim found {len(services)} services"
+    )
+
+    return services[:50]
 def weather_alerts(lat, lon, place):
     try:
         p = {
@@ -2439,13 +2619,45 @@ def emergency_mode():
 
 @app.route("/api/nearby")
 def api_nearby():
-    try:
-        lat = float(request.args["lat"])
-        lon = float(request.args["lon"])
-    except Exception:
-        return jsonify(services=[]), 400
-    return jsonify(services=overpass_services(lat, lon))
 
+    try:
+
+        lat = float(request.args.get("lat"))
+        lon = float(request.args.get("lon"))
+
+        if not (-90 <= lat <= 90):
+            raise ValueError
+
+        if not (-180 <= lon <= 180):
+            raise ValueError
+
+    except Exception:
+
+        return jsonify({
+            "services": [],
+            "error": "Invalid GPS coordinates"
+        }), 400
+
+    try:
+
+        services = overpass_services(lat, lon)
+
+        return jsonify({
+            "services": services,
+            "count": len(services)
+        })
+
+    except Exception as e:
+
+        print(
+            f"[Disaster X] Nearby service error: {e}"
+        )
+
+        return jsonify({
+            "services": [],
+            "count": 0,
+            "error": "Nearby service lookup failed"
+        })
 @app.route("/api/route")
 def api_route():
     try:
@@ -2470,4 +2682,18 @@ if __name__ == "__main__":
     print("DISASTER X")
     print("http://127.0.0.1:5000")
     print("=" * 55)
-    app.run(host="127.0.0.1", port=5000, debug=True)
+if __name__ == "__main__":
+    init_db()
+
+    port = int(os.environ.get("PORT", 5000))
+
+    print("=" * 55)
+    print("DISASTER X")
+    print(f"Running on port {port}")
+    print("=" * 55)
+
+    app.run(
+        host="0.0.0.0",
+        port=port,
+        debug=False
+    )
