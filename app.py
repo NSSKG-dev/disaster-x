@@ -9,7 +9,7 @@ from functools import wraps
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("DISASTER_X_SECRET", secrets.token_hex(32))
-DATABASE = os.environ.get("DISASTER_X_DB", "disaster_x.db")
+DATABASE = "disaster_x.db"
 
 ADMIN_USERNAME = os.environ.get("DISASTER_X_ADMIN", "admin")
 ADMIN_PASSWORD = os.environ.get("DISASTER_X_PASSWORD", "disasterx123")
@@ -279,27 +279,135 @@ def weather_alerts(lat, lon, place):
 
 @app.route("/")
 def home():
-    c = db()
-    total = c.execute("select count(*) n from reports").fetchone()["n"]
-    verified = c.execute("select count(*) n from reports where status='Verified'").fetchone()["n"]
-    pending = c.execute("select count(*) n from reports where status='Pending'").fetchone()["n"]
-    people = c.execute("select coalesce(sum(people_affected),0) n from reports where status='Verified'").fetchone()["n"]
-    c.close()
-    body = f"""
-    <div class="container"><section class="hero">
-    <div class="kicker">Smart disaster management</div><h1>DISASTER <span>X</span></h1>
-    <p>Report disasters, see verified incidents and weather alerts, find nearby emergency services and get route assistance.</p>
-    <div class="actions" style="justify-content:center">
-    <a class="btn" href="/report">🚨 Report Disaster</a><a class="btn blue" href="/emergency-mode">🧭 Emergency Mode</a>
-    <a class="btn dark" href="/map">🗺️ Open Disaster Map</a></div></section>
-    <div class="grid">
-    <div class="card"><div class="muted">Reports</div><div class="big">{total}</div></div>
-    <div class="card"><div class="muted">Verified</div><div class="big">{verified}</div></div>
-    <div class="card"><div class="muted">Pending</div><div class="big">{pending}</div></div>
-    <div class="card"><div class="muted">People affected</div><div class="big">{people}</div></div>
-    </div></div>"""
-    return page(body)
+    body = """
+    <div class="container">
 
+        <section class="hero">
+
+            <div class="kicker">
+                Smart disaster management
+            </div>
+
+            <h1>
+                DISASTER <span>X</span>
+            </h1>
+
+            <p>
+                Report disasters, see verified incidents and weather alerts,
+                find nearby emergency services and get route assistance.
+            </p>
+
+            <div class="actions" style="justify-content:center">
+
+                <a class="btn" href="/report">
+                    🚨 Report Disaster
+                </a>
+
+                <a class="btn blue" href="/emergency-mode">
+                    🧭 Emergency Mode
+                </a>
+
+                <a class="btn dark" href="/map">
+                    🗺️ Open Disaster Map
+                </a>
+
+            </div>
+
+        </section>
+
+
+        <!-- DISASTER PREPAREDNESS QUOTE -->
+
+        <section
+            class="card"
+            style="
+                max-width:950px;
+                margin:20px auto 40px;
+                text-align:center;
+                padding:35px 30px;
+            "
+        >
+
+            <div class="kicker">
+                Disaster preparedness
+            </div>
+
+            <div
+                style="
+                    font-size:clamp(20px,3vw,30px);
+                    line-height:1.5;
+                    font-weight:700;
+                    margin:15px auto;
+                "
+            >
+                “We cannot stop natural disasters,
+                but we can arm ourselves with knowledge.”
+            </div>
+
+            <div
+                class="muted"
+                style="
+                    font-size:16px;
+                    margin-top:12px;
+                "
+            >
+                — Petra Nemcova
+            </div>
+
+        </section>
+
+
+        <!-- QUICK INFORMATION -->
+
+        <section
+            class="grid"
+            style="
+                max-width:950px;
+                margin:auto;
+            "
+        >
+
+            <div class="card">
+                <h3>🚨 Report</h3>
+                <p class="muted">
+                    Submit information about a disaster
+                    in your area for verification.
+                </p>
+                <a class="btn small" href="/report">
+                    Report Now
+                </a>
+            </div>
+
+
+            <div class="card">
+                <h3>🗺️ Disaster Map</h3>
+                <p class="muted">
+                    View verified affected areas,
+                    alerts and live location assistance.
+                </p>
+                <a class="btn blue small" href="/map">
+                    Open Map
+                </a>
+            </div>
+
+
+            <div class="card">
+                <h3>🚑 Emergency</h3>
+                <p class="muted">
+                    Find nearby emergency services
+                    and get route assistance.
+                </p>
+                <a class="btn dark small" href="/emergency">
+                    Emergency Services
+                </a>
+            </div>
+
+        </section>
+
+    </div>
+    """
+
+    return page(body)
 REPORT = r"""
 <div class="container"><div class="form">
 <div class="kicker">Community request</div><h1>🚨 Report a Disaster</h1>
@@ -417,24 +525,281 @@ def admin_logout():
 @app.route("/admin/reports")
 @admin_required
 def admin_reports():
-    c = db()
-    rows = [dict(x) for x in c.execute("select * from reports order by id desc").fetchall()]
-    c.close()
-    cards = ""
-    for r in rows:
-        cards += f"""<div class="card"><div class="two"><div><h3>Request #{r['id']} • {r['area']}</h3>
-        <div class="muted">{r['created_at']} • {r['disaster_type']} • <span class="{r['severity'].lower()}">{r['severity']}</span></div>
-        <p>{r['description'] or 'No description'}</p><p><b>Impact:</b> {r['people_affected']} affected • {r['people_needing_help']} need help • {r['injured']} injured • {r['missing']} missing • {r['displaced']} displaced</p>
-        <p><b>Workforce:</b> {r['workforce'] or 'Not specified'}<br><b>Supplies:</b> {r['supplies'] or 'Not specified'}</p>
-        <p class="muted">PIN {r['pin_code'] or 'N/A'} • {r['latitude']:.6f}, {r['longitude']:.6f}</p></div>
-        <div><p>Status: <span class="badge {r['status'].lower()}">{r['status']}</span></p>
-        <div class="actions"><form method="post" action="/admin/report/{r['id']}/verify"><button class="btn green small">✓ Verify</button></form>
-        <form method="post" action="/admin/report/{r['id']}/reject"><button class="btn orange small">✕ Reject</button></form>
-        <form method="post" action="/admin/report/{r['id']}/delete" onsubmit="return confirm('Permanently delete this request?')"><button class="btn dark small">🗑 Delete</button></form></div></div></div></div>"""
-    body = f"""<div class="container"><div class="kicker">Administrator</div><h1>Reports</h1>
-    <p class="muted">Only verified requests are shown publicly on the disaster map.</p>{cards or '<div class="card">No requests yet.</div>'}</div>"""
-    return page(body,"Admin Reports")
 
+    c = db()
+
+    rows = [
+        dict(x)
+        for x in c.execute(
+            "select * from reports order by id desc"
+        ).fetchall()
+    ]
+
+    total = c.execute(
+        "select count(*) n from reports"
+    ).fetchone()["n"]
+
+    verified = c.execute(
+        "select count(*) n from reports where status='Verified'"
+    ).fetchone()["n"]
+
+    pending = c.execute(
+        "select count(*) n from reports where status='Pending'"
+    ).fetchone()["n"]
+
+    c.close()
+
+
+    # ---------------------------------------------------------
+    # REPORT CARDS
+    # ---------------------------------------------------------
+
+    cards = ""
+
+    for r in rows:
+
+        cards += f"""
+        <div class="card">
+
+            <div class="two">
+
+                <div>
+
+                    <h3>
+                        Request #{r['id']} • {r['area']}
+                    </h3>
+
+                    <div class="muted">
+                        {r['created_at']}
+                        •
+                        {r['disaster_type']}
+                        •
+                        <span class="{r['severity'].lower()}">
+                            {r['severity']}
+                        </span>
+                    </div>
+
+                    <p>
+                        {r['description'] or 'No description'}
+                    </p>
+
+                    <p>
+                        <b>Impact:</b>
+                        {r['people_affected']} affected
+                        •
+                        {r['people_needing_help']} need help
+                        •
+                        {r['injured']} injured
+                        •
+                        {r['missing']} missing
+                        •
+                        {r['displaced']} displaced
+                    </p>
+
+                    <p>
+                        <b>Workforce:</b>
+                        {r['workforce'] or 'Not specified'}
+                        <br>
+
+                        <b>Supplies:</b>
+                        {r['supplies'] or 'Not specified'}
+                    </p>
+
+                    <p class="muted">
+                        PIN {r['pin_code'] or 'N/A'}
+                        •
+                        {r['latitude']:.6f},
+                        {r['longitude']:.6f}
+                    </p>
+
+                </div>
+
+
+                <div>
+
+                    <p>
+                        Status:
+
+                        <span
+                            class="badge {r['status'].lower()}"
+                        >
+                            {r['status']}
+                        </span>
+                    </p>
+
+
+                    <div class="actions">
+
+                        <form
+                            method="post"
+                            action="/admin/report/{r['id']}/verify"
+                        >
+                            <button
+                                class="btn green small"
+                                type="submit"
+                            >
+                                ✓ Verify
+                            </button>
+                        </form>
+
+
+                        <form
+                            method="post"
+                            action="/admin/report/{r['id']}/reject"
+                        >
+                            <button
+                                class="btn orange small"
+                                type="submit"
+                            >
+                                ✕ Reject
+                            </button>
+                        </form>
+
+
+                        <form
+                            method="post"
+                            action="/admin/report/{r['id']}/delete"
+                            onsubmit="
+                                return confirm(
+                                    'Permanently delete this request?'
+                                )
+                            "
+                        >
+                            <button
+                                class="btn dark small"
+                                type="submit"
+                            >
+                                🗑 Delete
+                            </button>
+                        </form>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+        """
+
+
+    # ---------------------------------------------------------
+    # ADMIN PAGE
+    # ---------------------------------------------------------
+
+    body = f"""
+
+    <div class="container">
+
+        <div class="kicker">
+            Administrator
+        </div>
+
+        <h1>
+            Reports Dashboard
+        </h1>
+
+        <p class="muted">
+            Manage community disaster reports.
+            Only verified requests are shown publicly
+            on the disaster map.
+        </p>
+
+
+        <!-- STATISTICS MOVED FROM HOME -->
+
+        <div
+            class="grid"
+            style="
+                margin:25px 0;
+            "
+        >
+
+            <div class="card">
+
+                <div class="muted">
+                    Total Reports
+                </div>
+
+                <div class="big">
+                    {total}
+                </div>
+
+            </div>
+
+
+            <div class="card">
+
+                <div class="muted">
+                    Verified
+                </div>
+
+                <div
+                    class="big"
+                    style="color:#4ade80"
+                >
+                    {verified}
+                </div>
+
+            </div>
+
+
+            <div class="card">
+
+                <div class="muted">
+                    Pending
+                </div>
+
+                <div
+                    class="big"
+                    style="color:#fbbf24"
+                >
+                    {pending}
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <!-- REPORT LIST -->
+
+        <div
+            style="
+                margin-top:30px;
+            "
+        >
+
+            <div class="kicker">
+                Community Reports
+            </div>
+
+            <h2>
+                All Requests
+            </h2>
+
+            {cards or '''
+            <div class="card">
+
+                <h3>
+                    No reports yet
+                </h3>
+
+                <p class="muted">
+                    Community disaster reports
+                    will appear here when submitted.
+                </p>
+
+            </div>
+            '''}
+
+        </div>
+
+    </div>
+
+    """
+
+    return page(body, "Admin Reports")
 @app.route("/admin/report/<int:rid>/verify", methods=["POST"])
 @admin_required
 def verify(rid):
@@ -473,37 +838,1177 @@ def verified_reports():
 def disaster_map():
     body = r"""
     <div class="container">
-      <div class="kicker">Live picture</div>
-      <h1>🗺️ Disaster Map</h1>
-      <p class="muted">Verified community reports and weather alerts are displayed separately.</p>
-      <div id="map"></div>
+
+        <div class="kicker">Live disaster monitoring</div>
+
+        <h1>🗺️ Disaster Map</h1>
+
+        <p class="muted">
+            Live location, verified disaster reports and weather-derived
+            affected areas are shown together.
+        </p>
+
+        <div id="locationStatus" class="info">
+            📍 Requesting your live location...
+        </div>
+
+        <div class="two" style="align-items:start">
+
+            <!-- MAP -->
+            <div>
+                <div class="map-shell">
+                    <div id="map"></div>
+                </div>
+
+                <div class="card" style="margin-top:14px">
+                    <h3>🧭 Selected Destination</h3>
+                    <div id="routeInfo" class="muted">
+                        Select an affected area from the list to see
+                        the route and directions.
+                    </div>
+                </div>
+            </div>
+
+            <!-- AFFECTED AREAS -->
+            <div>
+
+                <div class="card">
+
+                    <div style="
+                        display:flex;
+                        justify-content:space-between;
+                        align-items:center;
+                        gap:10px;
+                    ">
+                        <div>
+                            <h3 style="margin-bottom:4px">
+                                🚨 Affected Areas
+                            </h3>
+
+                            <div class="muted">
+                                Distance and direction from your location
+                            </div>
+                        </div>
+
+                        <button
+                            class="btn blue small"
+                            onclick="refreshMap()"
+                        >
+                            🔄 Refresh
+                        </button>
+                    </div>
+
+                    <div
+                        id="affectedList"
+                        style="margin-top:15px"
+                    >
+                        <p class="muted">
+                            Finding affected areas...
+                        </p>
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
     </div>
+
     <script>
-    const map = L.map('map').setView([22.5726,88.3639],6);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
-    setTimeout(()=>map.invalidateSize(),200);
 
-    fetch('/api/verified-reports').then(r=>r.json()).then(rows=>{
-      rows.forEach(x=>{
-        const col = x.severity==='Critical' ? '#ef4444' : x.severity==='High' ? '#f97316' : x.severity==='Medium' ? '#eab308' : '#22c55e';
-        L.circle([x.latitude,x.longitude],{
-          radius:Math.min(1000+Number(x.people_affected)*8,15000),
-          color:col,fillColor:col,fillOpacity:.25
-        }).addTo(map).bindPopup('<b>Verified Report #'+x.id+'</b><br>'+x.area+'<br>'+x.disaster_type+' • '+x.severity+'<br>People affected: '+x.people_affected+'<br>Need help: '+x.people_needing_help);
-      });
-    });
+    let map = null;
+    let myMarker = null;
+    let accuracyCircle = null;
 
-    fetch('/api/alerts').then(r=>r.json()).then(rows=>{
-      rows.forEach(x=>{
-        L.circle([x.lat,x.lon],{
-          radius:x.radius,color:'#a78bfa',fillColor:'#a78bfa',fillOpacity:.12,dashArray:'6 6'
-        }).addTo(map).bindPopup('<b>Weather Alert</b><br>'+x.title+' • '+x.risk+'<br>'+x.region+'<br>'+x.description+'<br>Source: '+x.source);
-      });
-    });
+    let routeLayer = null;
+
+    let currentLat = null;
+    let currentLon = null;
+
+    let affectedAreas = [];
+
+    let locationWatch = null;
+
+
+    /*
+     * ---------------------------------------------------------
+     * DISTANCE
+     * ---------------------------------------------------------
+     */
+
+    function distanceKm(lat1, lon1, lat2, lon2) {
+
+        const R = 6371;
+
+        const p1 = lat1 * Math.PI / 180;
+        const p2 = lat2 * Math.PI / 180;
+
+        const dp = (lat2 - lat1) * Math.PI / 180;
+        const dl = (lon2 - lon1) * Math.PI / 180;
+
+        const a =
+            Math.sin(dp / 2) * Math.sin(dp / 2) +
+            Math.cos(p1) *
+            Math.cos(p2) *
+            Math.sin(dl / 2) *
+            Math.sin(dl / 2);
+
+        const c = 2 * Math.atan2(
+            Math.sqrt(a),
+            Math.sqrt(1 - a)
+        );
+
+        return R * c;
+    }
+
+
+    /*
+     * ---------------------------------------------------------
+     * DIRECTION
+     * ---------------------------------------------------------
+     */
+
+    function getDirection(lat1, lon1, lat2, lon2) {
+
+        const lat1Rad = lat1 * Math.PI / 180;
+        const lat2Rad = lat2 * Math.PI / 180;
+
+        const dLon =
+            (lon2 - lon1) * Math.PI / 180;
+
+        const y = Math.sin(dLon) * Math.cos(lat2Rad);
+
+        const x =
+            Math.cos(lat1Rad) * Math.sin(lat2Rad) -
+            Math.sin(lat1Rad) *
+            Math.cos(lat2Rad) *
+            Math.cos(dLon);
+
+        let bearing =
+            Math.atan2(y, x) * 180 / Math.PI;
+
+        bearing = (bearing + 360) % 360;
+
+        const directions = [
+            "North",
+            "North-East",
+            "East",
+            "South-East",
+            "South",
+            "South-West",
+            "West",
+            "North-West"
+        ];
+
+        const index =
+            Math.round(bearing / 45) % 8;
+
+        return {
+            name: directions[index],
+            bearing: Math.round(bearing)
+        };
+    }
+
+
+    /*
+     * ---------------------------------------------------------
+     * CREATE MAP
+     * ---------------------------------------------------------
+     */
+
+    function createMap(lat, lon) {
+
+        if (map) {
+            map.setView([lat, lon], 13);
+            return;
+        }
+
+        map = L.map("map").setView(
+            [lat, lon],
+            13
+        );
+
+        L.tileLayer(
+            "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            {
+                maxZoom: 19,
+                attribution: "© OpenStreetMap"
+            }
+        ).addTo(map);
+
+        setTimeout(function() {
+            map.invalidateSize();
+        }, 300);
+    }
+
+
+    /*
+     * ---------------------------------------------------------
+     * UPDATE MY LOCATION
+     * ---------------------------------------------------------
+     */
+
+    function updateMyLocation(lat, lon, accuracy) {
+
+        currentLat = lat;
+        currentLon = lon;
+
+        createMap(lat, lon);
+
+        if (!myMarker) {
+
+            myMarker = L.marker(
+                [lat, lon]
+            )
+            .addTo(map)
+            .bindPopup(
+                "<b>📍 Your Live Location</b>"
+            );
+
+        } else {
+
+            myMarker.setLatLng([lat, lon]);
+
+        }
+
+        if (!accuracyCircle) {
+
+            accuracyCircle = L.circle(
+                [lat, lon],
+                {
+                    radius: accuracy || 30,
+                    color: "#38bdf8",
+                    fillColor: "#38bdf8",
+                    fillOpacity: 0.10,
+                    weight: 2
+                }
+            ).addTo(map);
+
+        } else {
+
+            accuracyCircle.setLatLng([lat, lon]);
+
+            if (accuracy) {
+                accuracyCircle.setRadius(accuracy);
+            }
+
+        }
+
+        document.getElementById(
+            "locationStatus"
+        ).innerHTML =
+            "📍 <b>Live location active</b><br>" +
+            "<span class='muted'>" +
+            lat.toFixed(6) +
+            ", " +
+            lon.toFixed(6) +
+            "</span>";
+
+        updateAffectedList();
+
+    }
+
+
+    /*
+     * ---------------------------------------------------------
+     * LOAD VERIFIED REPORTS + WEATHER ALERTS
+     * ---------------------------------------------------------
+     */
+
+    async function loadAffectedAreas() {
+
+        try {
+
+            const reportResponse =
+                await fetch(
+                    "/api/verified-reports"
+                );
+
+            const reports =
+                await reportResponse.json();
+
+            affectedAreas = [];
+
+            reports.forEach(function(x) {
+
+                if (
+                    x.latitude === null ||
+                    x.longitude === null
+                ) {
+                    return;
+                }
+
+                affectedAreas.push({
+
+                    id: "report-" + x.id,
+
+                    type: "Verified Report",
+
+                    title:
+                        x.disaster_type +
+                        " — " +
+                        x.area,
+
+                    area: x.area,
+
+                    lat: Number(x.latitude),
+
+                    lon: Number(x.longitude),
+
+                    severity: x.severity,
+
+                    description:
+                        x.description ||
+                        "Verified disaster report.",
+
+                    people:
+                        Number(x.people_affected || 0),
+
+                    color:
+                        x.severity === "Critical"
+                            ? "#ef4444"
+                            : x.severity === "High"
+                                ? "#f97316"
+                                : x.severity === "Medium"
+                                    ? "#eab308"
+                                    : "#22c55e"
+
+                });
+
+            });
+
+
+            /*
+             * Weather alerts are calculated using
+             * the user's live location.
+             */
+
+            if (
+                currentLat !== null &&
+                currentLon !== null
+            ) {
+
+                const alertResponse =
+                    await fetch(
+                        "/api/alerts?lat=" +
+                        encodeURIComponent(currentLat) +
+                        "&lon=" +
+                        encodeURIComponent(currentLon) +
+                        "&place=Your area"
+                    );
+
+                const alerts =
+                    await alertResponse.json();
+
+                alerts.forEach(function(x) {
+
+                    affectedAreas.push({
+
+                        id: x.id,
+
+                        type: "Weather Alert",
+
+                        title:
+                            x.title +
+                            " — " +
+                            x.region,
+
+                        area: x.region,
+
+                        lat: Number(x.lat),
+
+                        lon: Number(x.lon),
+
+                        severity: x.risk,
+
+                        description:
+                            x.description,
+
+                        people: 0,
+
+                        color: "#a78bfa"
+
+                    });
+
+                });
+
+            }
+
+            drawAffectedAreas();
+
+            updateAffectedList();
+
+        } catch (error) {
+
+            console.error(error);
+
+            document.getElementById(
+                "affectedList"
+            ).innerHTML =
+                "<div class='alert'>" +
+                "Could not load affected areas." +
+                "</div>";
+
+        }
+
+    }
+
+
+    /*
+     * ---------------------------------------------------------
+     * DRAW DISASTER AREAS ON MAP
+     * ---------------------------------------------------------
+     */
+
+    function drawAffectedAreas() {
+
+        if (!map) {
+            return;
+        }
+
+        /*
+         * Remove old disaster layers.
+         */
+
+        map.eachLayer(function(layer) {
+
+            if (
+                layer._disasterXArea
+            ) {
+                map.removeLayer(layer);
+            }
+
+        });
+
+
+        affectedAreas.forEach(function(area) {
+
+            const distance =
+                distanceKm(
+                    currentLat,
+                    currentLon,
+                    area.lat,
+                    area.lon
+                );
+
+
+            let radius = 1000;
+
+            if (
+                area.type === "Verified Report"
+            ) {
+
+                radius = Math.min(
+                    1000 +
+                    area.people * 8,
+                    15000
+                );
+
+            } else {
+
+                radius = 5000;
+
+            }
+
+
+            const circle =
+                L.circle(
+                    [area.lat, area.lon],
+                    {
+                        radius: radius,
+
+                        color: area.color,
+
+                        fillColor: area.color,
+
+                        fillOpacity: 0.20,
+
+                        weight: 2
+                    }
+                ).addTo(map);
+
+
+            circle._disasterXArea = true;
+
+
+            circle.bindPopup(
+                "<b>" +
+                area.type +
+                "</b><br>" +
+
+                area.title +
+                "<br>" +
+
+                "Risk: " +
+                area.severity +
+                "<br>" +
+
+                "Distance: " +
+                distance.toFixed(2) +
+                " km"
+            );
+
+        });
+
+    }
+
+
+    /*
+     * ---------------------------------------------------------
+     * AFFECTED AREA LIST
+     * ---------------------------------------------------------
+     */
+
+    function updateAffectedList() {
+
+        const box =
+            document.getElementById(
+                "affectedList"
+            );
+
+        if (
+            currentLat === null ||
+            currentLon === null
+        ) {
+
+            box.innerHTML =
+                "<p class='muted'>" +
+                "Waiting for your location..." +
+                "</p>";
+
+            return;
+
+        }
+
+
+        if (!affectedAreas.length) {
+
+            box.innerHTML =
+                "<div class='card'>" +
+                "<h3>✓ No affected areas</h3>" +
+                "<p class='muted'>" +
+                "No verified reports or current " +
+                "weather-derived affected areas " +
+                "were found." +
+                "</p>" +
+                "</div>";
+
+            return;
+
+        }
+
+
+        const sorted =
+            affectedAreas
+            .map(function(area) {
+
+                const distance =
+                    distanceKm(
+                        currentLat,
+                        currentLon,
+                        area.lat,
+                        area.lon
+                    );
+
+                const direction =
+                    getDirection(
+                        currentLat,
+                        currentLon,
+                        area.lat,
+                        area.lon
+                    );
+
+                return {
+                    area: area,
+                    distance: distance,
+                    direction: direction
+                };
+
+            })
+            .sort(function(a, b) {
+
+                return a.distance -
+                    b.distance;
+
+            });
+
+
+        box.innerHTML = "";
+
+
+        sorted.forEach(function(item, index) {
+
+            const area = item.area;
+
+            const typeClass =
+                area.type === "Verified Report"
+                    ? "danger"
+                    : "successText";
+
+
+            box.innerHTML += `
+
+                <div
+                    class="card affected-item"
+                    style="
+                        margin-bottom:12px;
+                        border-left:5px solid ${area.color};
+                    "
+                >
+
+                    <div style="
+                        display:flex;
+                        justify-content:space-between;
+                        gap:10px;
+                        align-items:flex-start;
+                    ">
+
+                        <div>
+
+                            <div class="kicker">
+                                ${area.type}
+                            </div>
+
+                            <h3 style="
+                                margin:5px 0;
+                            ">
+                                ${area.title}
+                            </h3>
+
+                        </div>
+
+                        <span
+                            class="badge"
+                            style="
+                                background:${area.color}22;
+                                color:${area.color};
+                            "
+                        >
+                            ${area.severity}
+                        </span>
+
+                    </div>
+
+
+                    <p class="muted">
+                        ${area.description}
+                    </p>
+
+
+                    <div
+                        style="
+                            display:grid;
+                            grid-template-columns:
+                                1fr 1fr;
+                            gap:8px;
+                            margin-top:12px;
+                        "
+                    >
+
+                        <div class="info"
+                            style="margin:0"
+                        >
+                            📏 <b>
+                            ${item.distance.toFixed(2)}
+                            km
+                            </b>
+                            <br>
+                            <span class="muted">
+                                From your location
+                            </span>
+                        </div>
+
+
+                        <div class="info"
+                            style="margin:0"
+                        >
+                            🧭 <b>
+                            ${item.direction.name}
+                            </b>
+                            <br>
+                            <span class="muted">
+                                Bearing:
+                                ${item.direction.bearing}°
+                            </span>
+                        </div>
+
+                    </div>
+
+
+                    <div class="actions">
+
+                        <button
+                            class="btn blue small"
+                            onclick="
+                                showWay(
+                                    ${area.lat},
+                                    ${area.lon},
+                                    '${encodeURIComponent(area.title)}'
+                                )
+                            "
+                        >
+                            🧭 Show Way
+                        </button>
+
+
+                        <button
+                            class="btn dark small"
+                            onclick="
+                                focusArea(
+                                    ${area.lat},
+                                    ${area.lon}
+                                )
+                            "
+                        >
+                            🔎 View Area
+                        </button>
+
+                    </div>
+
+                </div>
+
+            `;
+
+        });
+
+    }
+
+
+    /*
+     * ---------------------------------------------------------
+     * FOCUS ON DISASTER
+     * ---------------------------------------------------------
+     */
+
+    function focusArea(lat, lon) {
+
+        if (!map) {
+            return;
+        }
+
+        map.setView(
+            [lat, lon],
+            14
+        );
+
+    }
+
+
+    /*
+     * ---------------------------------------------------------
+     * SHOW ROUTE / WAY
+     * ---------------------------------------------------------
+     */
+
+    async function showWay(
+        lat,
+        lon,
+        encodedTitle
+    ) {
+
+        if (
+            currentLat === null ||
+            currentLon === null
+        ) {
+
+            alert(
+                "Your live location is not available yet."
+            );
+
+            return;
+
+        }
+
+
+        const title =
+            decodeURIComponent(
+                encodedTitle
+            );
+
+
+        const info =
+            document.getElementById(
+                "routeInfo"
+            );
+
+
+        info.innerHTML =
+            "<h3>🧭 Calculating route...</h3>" +
+            "<p class='muted'>" +
+            "Finding the best available road route." +
+            "</p>";
+
+
+        try {
+
+            const response =
+                await fetch(
+                    "/api/route" +
+                    "?from_lat=" +
+                    encodeURIComponent(currentLat) +
+                    "&from_lon=" +
+                    encodeURIComponent(currentLon) +
+                    "&to_lat=" +
+                    encodeURIComponent(lat) +
+                    "&to_lon=" +
+                    encodeURIComponent(lon)
+                );
+
+
+            const data =
+                await response.json();
+
+
+            if (routeLayer) {
+
+                map.removeLayer(
+                    routeLayer
+                );
+
+                routeLayer = null;
+
+            }
+
+
+            if (data.geometry) {
+
+                routeLayer =
+                    L.geoJSON(
+                        data.geometry,
+                        {
+                            style: {
+                                weight: 7,
+                                color: "#38bdf8",
+                                opacity: 0.9
+                            }
+                        }
+                    ).addTo(map);
+
+
+                map.fitBounds(
+                    routeLayer.getBounds(),
+                    {
+                        padding: [40, 40]
+                    }
+                );
+
+            } else {
+
+                /*
+                 * Routing service unavailable.
+                 * Still show straight-line direction.
+                 */
+
+                routeLayer =
+                    L.polyline(
+                        [
+                            [currentLat, currentLon],
+                            [lat, lon]
+                        ],
+                        {
+                            color: "#38bdf8",
+                            weight: 5,
+                            dashArray: "10 8"
+                        }
+                    ).addTo(map);
+
+            }
+
+
+            const distance =
+                data.distance ||
+                distanceKm(
+                    currentLat,
+                    currentLon,
+                    lat,
+                    lon
+                );
+
+
+            const duration =
+                data.duration || 0;
+
+
+            const direction =
+                getDirection(
+                    currentLat,
+                    currentLon,
+                    lat,
+                    lon
+                );
+
+
+            info.innerHTML = `
+
+                <h3>🧭 Route to ${title}</h3>
+
+                <p>
+                    <b>📏 Distance:</b>
+                    ${Number(distance).toFixed(2)}
+                    km
+                </p>
+
+                <p>
+                    <b>⏱️ Estimated travel time:</b>
+                    ${
+                        duration
+                            ? Math.round(duration) +
+                              " minutes"
+                            : "Unavailable"
+                    }
+                </p>
+
+                <p>
+                    <b>🧭 Direction:</b>
+                    ${direction.name}
+                    (${direction.bearing}°)
+                </p>
+
+                <p class="muted">
+                    The blue line shows the
+                    available road route from
+                    your current location to
+                    the affected area.
+                </p>
+
+                <div class="actions">
+
+                    <button
+                        class="btn dark small"
+                        onclick="clearRoute()"
+                    >
+                        ✕ Clear Route
+                    </button>
+
+                </div>
+
+            `;
+
+        } catch (error) {
+
+            console.error(error);
+
+            info.innerHTML =
+                "<div class='alert'>" +
+                "Could not calculate the route." +
+                "</div>";
+
+        }
+
+    }
+
+
+    /*
+     * ---------------------------------------------------------
+     * CLEAR ROUTE
+     * ---------------------------------------------------------
+     */
+
+    function clearRoute() {
+
+        if (routeLayer) {
+
+            map.removeLayer(
+                routeLayer
+            );
+
+            routeLayer = null;
+
+        }
+
+
+        document.getElementById(
+            "routeInfo"
+        ).innerHTML =
+            "<span class='muted'>" +
+            "Select an affected area from the " +
+            "list to see the route and directions." +
+            "</span>";
+
+    }
+
+
+    /*
+     * ---------------------------------------------------------
+     * REFRESH
+     * ---------------------------------------------------------
+     */
+
+    async function refreshMap() {
+
+        if (
+            currentLat === null ||
+            currentLon === null
+        ) {
+            return;
+        }
+
+        await loadAffectedAreas();
+
+    }
+
+
+    /*
+     * ---------------------------------------------------------
+     * LIVE GPS
+     * ---------------------------------------------------------
+     */
+
+    function startLiveLocation() {
+
+        if (
+            !navigator.geolocation
+        ) {
+
+            document.getElementById(
+                "locationStatus"
+            ).innerHTML =
+                "<div class='alert'>" +
+                "Your browser does not support " +
+                "live location." +
+                "</div>";
+
+            /*
+             * Fallback to Kolkata.
+             */
+
+            currentLat = 22.5726;
+            currentLon = 88.3639;
+
+            createMap(
+                currentLat,
+                currentLon
+            );
+
+            loadAffectedAreas();
+
+            return;
+
+        }
+
+
+        navigator.geolocation.getCurrentPosition(
+
+            function(position) {
+
+                updateMyLocation(
+                    position.coords.latitude,
+                    position.coords.longitude,
+                    position.coords.accuracy
+                );
+
+                loadAffectedAreas();
+
+            },
+
+            function(error) {
+
+                console.warn(
+                    "Location error:",
+                    error
+                );
+
+                document.getElementById(
+                    "locationStatus"
+                ).innerHTML =
+                    "<div class='alert'>" +
+                    "⚠️ Live location permission " +
+                    "was denied. Showing Kolkata " +
+                    "as the fallback location." +
+                    "</div>";
+
+                currentLat = 22.5726;
+                currentLon = 88.3639;
+
+                createMap(
+                    currentLat,
+                    currentLon
+                );
+
+                loadAffectedAreas();
+
+            },
+
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 5000
+            }
+
+        );
+
+
+        /*
+         * Continuously watch the user's location.
+         */
+
+        locationWatch =
+            navigator.geolocation.watchPosition(
+
+                function(position) {
+
+                    updateMyLocation(
+                        position.coords.latitude,
+                        position.coords.longitude,
+                        position.coords.accuracy
+                    );
+
+                },
+
+                function(error) {
+
+                    console.warn(
+                        "Live location update failed:",
+                        error
+                    );
+
+                },
+
+                {
+                    enableHighAccuracy: true,
+                    maximumAge: 5000,
+                    timeout: 10000
+                }
+
+            );
+
+    }
+
+
+    /*
+     * ---------------------------------------------------------
+     * START
+     * ---------------------------------------------------------
+     */
+
+    startLiveLocation();
+
     </script>
-    """
-    return page(body,"Disaster Map")
 
+    <style>
+
+        .affected-item {
+            transition: .18s;
+        }
+
+        .affected-item:hover {
+            transform: translateY(-2px);
+            border-color: #4b6b8d;
+        }
+
+        @media(max-width:900px) {
+
+            .two {
+                grid-template-columns: 1fr !important;
+            }
+
+        }
+
+    </style>
+    """
+
+    return page(body, "Disaster Map")
 @app.route("/api/alerts")
 def api_alerts():
     lat = float(request.args.get("lat", 22.5726))
@@ -959,14 +2464,10 @@ def api_route():
 def health():
     return jsonify(ok=True, app="Disaster X")
 
-# Initialize the database when the app is imported by Gunicorn/Render.
-init_db()
-
 if __name__ == "__main__":
     init_db()
     print("=" * 55)
     print("DISASTER X")
-    port = int(os.environ.get("PORT", "5000"))
-    print(f"http://0.0.0.0:{port}")
+    print("http://127.0.0.1:5000")
     print("=" * 55)
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="127.0.0.1", port=5000, debug=True)
